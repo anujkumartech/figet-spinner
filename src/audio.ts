@@ -1,113 +1,220 @@
+import { SoundProfile } from './designs';
+
 let audioCtx: AudioContext | null = null;
-let noiseBuffer: AudioBuffer | null = null;
-let sourceNode: AudioBufferSourceNode | null = null;
-let gainNode: GainNode | null = null;
-let filterNode: BiquadFilterNode | null = null;
+let unlocked = false;
+
+// Noise buffers (generated once, reused)
+let pinkBuffer: AudioBuffer | null = null;
+let whiteBuffer: AudioBuffer | null = null;
+let brownBuffer: AudioBuffer | null = null;
+
+// Active audio nodes
+let noiseSource: AudioBufferSourceNode | null = null;
+let noiseGain: GainNode | null = null;
+let noiseFilter: BiquadFilterNode | null = null;
+let toneOsc: OscillatorNode | null = null;
+let toneGain: GainNode | null = null;
+let toneFilter: BiquadFilterNode | null = null;
 let isPlaying = false;
+let currentProfile: SoundProfile | null = null;
 
 function getContext(): AudioContext {
   if (!audioCtx) {
-    audioCtx = new AudioContext();
+    audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
   }
   return audioCtx;
 }
 
-function createNoiseBuffer(ctx: AudioContext): AudioBuffer {
-  const sampleRate = ctx.sampleRate;
-  const length = sampleRate * 2; // 2 seconds of noise
-  const buffer = ctx.createBuffer(1, length, sampleRate);
-  const data = buffer.getChannelData(0);
+/**
+ * iOS/Safari requires AudioContext to be resumed inside a user gesture,
+ * AND a buffer source must be played to fully unlock audio output.
+ */
+async function unlockAudio(): Promise<void> {
+  if (unlocked) return;
+  const ctx = getContext();
 
-  // Pink-ish noise for whoosh sound
-  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
-  for (let i = 0; i < length; i++) {
-    const white = Math.random() * 2 - 1;
-    b0 = 0.99886 * b0 + white * 0.0555179;
-    b1 = 0.99332 * b1 + white * 0.0750759;
-    b2 = 0.96900 * b2 + white * 0.1538520;
-    b3 = 0.86650 * b3 + white * 0.3104856;
-    b4 = 0.55000 * b4 + white * 0.5329522;
-    b5 = -0.7616 * b5 - white * 0.0168980;
-    data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.08;
-    b6 = white * 0.115926;
+  if (ctx.state === 'suspended') {
+    await ctx.resume();
   }
 
-  return buffer;
+  // Play a silent buffer to fully unlock on iOS
+  const silentBuffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+  const source = ctx.createBufferSource();
+  source.buffer = silentBuffer;
+  source.connect(ctx.destination);
+  source.start(0);
+
+  unlocked = true;
 }
 
-function startWhoosh() {
+function generatePinkNoise(ctx: AudioContext): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const len = sr * 2;
+  const buf = ctx.createBuffer(1, len, sr);
+  const data = buf.getChannelData(0);
+
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  for (let i = 0; i < len; i++) {
+    const w = Math.random() * 2 - 1;
+    b0 = 0.99886 * b0 + w * 0.0555179;
+    b1 = 0.99332 * b1 + w * 0.0750759;
+    b2 = 0.96900 * b2 + w * 0.1538520;
+    b3 = 0.86650 * b3 + w * 0.3104856;
+    b4 = 0.55000 * b4 + w * 0.5329522;
+    b5 = -0.7616 * b5 - w * 0.0168980;
+    data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.08;
+    b6 = w * 0.115926;
+  }
+  return buf;
+}
+
+function generateWhiteNoise(ctx: AudioContext): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const len = sr * 2;
+  const buf = ctx.createBuffer(1, len, sr);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) {
+    data[i] = (Math.random() * 2 - 1) * 0.5;
+  }
+  return buf;
+}
+
+function generateBrownNoise(ctx: AudioContext): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const len = sr * 2;
+  const buf = ctx.createBuffer(1, len, sr);
+  const data = buf.getChannelData(0);
+  let last = 0;
+  for (let i = 0; i < len; i++) {
+    const w = Math.random() * 2 - 1;
+    last = (last + (0.02 * w)) / 1.02;
+    data[i] = last * 3.5;
+  }
+  return buf;
+}
+
+function getNoiseBuffer(ctx: AudioContext, type: 'pink' | 'white' | 'brown'): AudioBuffer {
+  switch (type) {
+    case 'pink':
+      if (!pinkBuffer) pinkBuffer = generatePinkNoise(ctx);
+      return pinkBuffer;
+    case 'white':
+      if (!whiteBuffer) whiteBuffer = generateWhiteNoise(ctx);
+      return whiteBuffer;
+    case 'brown':
+      if (!brownBuffer) brownBuffer = generateBrownNoise(ctx);
+      return brownBuffer;
+  }
+}
+
+function stopAll() {
+  if (noiseSource) {
+    try { noiseSource.stop(); } catch { /* ignore */ }
+    noiseSource.disconnect();
+    noiseSource = null;
+  }
+  if (noiseGain) { noiseGain.disconnect(); noiseGain = null; }
+  if (noiseFilter) { noiseFilter.disconnect(); noiseFilter = null; }
+  if (toneOsc) {
+    try { toneOsc.stop(); } catch { /* ignore */ }
+    toneOsc.disconnect();
+    toneOsc = null;
+  }
+  if (toneGain) { toneGain.disconnect(); toneGain = null; }
+  if (toneFilter) { toneFilter.disconnect(); toneFilter = null; }
+  isPlaying = false;
+  currentProfile = null;
+}
+
+function startSound(profile: SoundProfile) {
   const ctx = getContext();
   if (ctx.state === 'suspended') {
     ctx.resume();
   }
 
-  if (!noiseBuffer) {
-    noiseBuffer = createNoiseBuffer(ctx);
+  stopAll();
+  currentProfile = profile;
+
+  // Noise chain: source -> filter -> gain -> destination
+  const buffer = getNoiseBuffer(ctx, profile.noiseType);
+  noiseSource = ctx.createBufferSource();
+  noiseSource.buffer = buffer;
+  noiseSource.loop = true;
+
+  noiseFilter = ctx.createBiquadFilter();
+  noiseFilter.type = profile.filterType;
+  noiseFilter.frequency.value = profile.freqRange[0];
+  noiseFilter.Q.value = profile.q;
+
+  noiseGain = ctx.createGain();
+  noiseGain.gain.value = 0;
+
+  noiseSource.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
+  noiseGain.connect(ctx.destination);
+  noiseSource.start();
+
+  // Optional tone oscillator for character
+  if (profile.toneFreq && profile.toneVol && profile.toneType) {
+    toneOsc = ctx.createOscillator();
+    toneOsc.type = profile.toneType;
+    toneOsc.frequency.value = profile.toneFreq;
+
+    toneFilter = ctx.createBiquadFilter();
+    toneFilter.type = 'lowpass';
+    toneFilter.frequency.value = profile.toneFreq * 3;
+
+    toneGain = ctx.createGain();
+    toneGain.gain.value = 0;
+
+    toneOsc.connect(toneFilter);
+    toneFilter.connect(toneGain);
+    toneGain.connect(ctx.destination);
+    toneOsc.start();
   }
 
-  // Clean up previous
-  stopWhoosh();
-
-  sourceNode = ctx.createBufferSource();
-  sourceNode.buffer = noiseBuffer;
-  sourceNode.loop = true;
-
-  gainNode = ctx.createGain();
-  gainNode.gain.value = 0;
-
-  filterNode = ctx.createBiquadFilter();
-  filterNode.type = 'bandpass';
-  filterNode.frequency.value = 400;
-  filterNode.Q.value = 0.5;
-
-  sourceNode.connect(filterNode);
-  filterNode.connect(gainNode);
-  gainNode.connect(ctx.destination);
-  sourceNode.start();
   isPlaying = true;
 }
 
-function stopWhoosh() {
-  if (sourceNode) {
-    try { sourceNode.stop(); } catch (_) { /* ignore */ }
-    sourceNode.disconnect();
-    sourceNode = null;
-  }
-  if (gainNode) {
-    gainNode.disconnect();
-    gainNode = null;
-  }
-  if (filterNode) {
-    filterNode.disconnect();
-    filterNode = null;
-  }
-  isPlaying = false;
-}
+export function updateAudio(angularVelocity: number, profile: SoundProfile): void {
+  if (!unlocked) return;
 
-export function updateAudio(angularVelocity: number): void {
   const speed = Math.abs(angularVelocity);
 
   if (speed < 0.5) {
-    if (isPlaying) stopWhoosh();
+    if (isPlaying) stopAll();
     return;
   }
 
-  if (!isPlaying) {
-    startWhoosh();
+  // Start or switch sound profile if design changed
+  if (!isPlaying || currentProfile !== profile) {
+    startSound(profile);
   }
 
-  if (!gainNode || !filterNode || !audioCtx) return;
+  if (!noiseGain || !noiseFilter || !audioCtx) return;
 
-  // Volume scales with speed (0 to 0.3)
-  const vol = Math.min(speed / 50, 1) * 0.3;
-  gainNode.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.1);
+  const t = Math.min(speed / 60, 1);
 
-  // Filter frequency rises with speed (200 to 2000 Hz)
-  const freq = 200 + (Math.min(speed / 60, 1) * 1800);
-  filterNode.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.1);
+  // Noise volume
+  const vol = t * profile.maxVol;
+  noiseGain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.1);
+
+  // Filter frequency sweeps from low to high with speed
+  const freq = profile.freqRange[0] + t * (profile.freqRange[1] - profile.freqRange[0]);
+  noiseFilter.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.1);
+
+  // Tone: pitch bends up slightly with speed, volume fades in
+  if (toneOsc && toneGain && toneFilter && profile.toneFreq && profile.toneVol) {
+    const toneVol = t * profile.toneVol;
+    toneGain.gain.setTargetAtTime(toneVol, audioCtx.currentTime, 0.1);
+    // Slight pitch rise with speed
+    const pitchMult = 1 + t * 0.5;
+    toneOsc.frequency.setTargetAtTime(profile.toneFreq * pitchMult, audioCtx.currentTime, 0.15);
+    toneFilter.frequency.setTargetAtTime(profile.toneFreq * pitchMult * 3, audioCtx.currentTime, 0.15);
+  }
 }
 
 export function initAudio(): void {
-  // Pre-init on first user gesture (called from interaction handlers)
-  getContext();
+  // Must be called from a user gesture (click/touch handler)
+  unlockAudio();
 }

@@ -323,8 +323,8 @@ function loop(time: number) {
   // Check milestones
   checkMilestones(rpm);
 
-  // Update audio
-  updateAudio(spinnerState.angularVelocity);
+  // Update audio (pass current design's sound profile)
+  updateAudio(spinnerState.angularVelocity, design.sound);
 
   // Update haptics
   updateHaptics(spinnerState.angularVelocity, time);

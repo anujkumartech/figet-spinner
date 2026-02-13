@@ -1,8 +1,28 @@
 import { ColorTheme } from './colors';
 
+export interface SoundProfile {
+  /** Base filter frequency range [min, max] Hz */
+  freqRange: [number, number];
+  /** Filter Q factor — higher = more resonant/tonal */
+  q: number;
+  /** Filter type */
+  filterType: BiquadFilterType;
+  /** Max volume (0-1) */
+  maxVol: number;
+  /** Noise type: 'pink' | 'white' | 'brown' */
+  noiseType: 'pink' | 'white' | 'brown';
+  /** Optional secondary oscillator for tonal character */
+  toneFreq?: number;
+  /** Tone volume relative to noise (0-1) */
+  toneVol?: number;
+  /** Tone waveform */
+  toneType?: OscillatorType;
+}
+
 export interface SpinnerDesign {
   name: string;
   friction: number;
+  sound: SoundProfile;
   draw: (ctx: CanvasRenderingContext2D, size: number, rotation: number, theme: ColorTheme) => void;
 }
 
@@ -29,6 +49,13 @@ function drawBearing(ctx: CanvasRenderingContext2D, size: number, theme: ColorTh
 const classic: SpinnerDesign = {
   name: 'Classic',
   friction: 0.97,
+  sound: {
+    freqRange: [200, 1800],
+    q: 0.5,
+    filterType: 'bandpass',
+    maxVol: 0.25,
+    noiseType: 'pink',
+  },
   draw(ctx, size, rotation, theme) {
     ctx.save();
     ctx.rotate(rotation);
@@ -77,6 +104,16 @@ const classic: SpinnerDesign = {
 const shuriken: SpinnerDesign = {
   name: 'Shuriken',
   friction: 0.975,
+  sound: {
+    freqRange: [600, 4000],
+    q: 2.0,
+    filterType: 'bandpass',
+    maxVol: 0.2,
+    noiseType: 'white',
+    toneFreq: 120,
+    toneVol: 0.06,
+    toneType: 'sawtooth',
+  },
   draw(ctx, size, rotation, theme) {
     ctx.save();
     ctx.rotate(rotation);
@@ -139,6 +176,16 @@ const shuriken: SpinnerDesign = {
 const gear: SpinnerDesign = {
   name: 'Gear',
   friction: 0.965,
+  sound: {
+    freqRange: [100, 800],
+    q: 1.5,
+    filterType: 'lowpass',
+    maxVol: 0.3,
+    noiseType: 'brown',
+    toneFreq: 60,
+    toneVol: 0.1,
+    toneType: 'square',
+  },
   draw(ctx, size, rotation, theme) {
     ctx.save();
     ctx.rotate(rotation);
@@ -215,6 +262,16 @@ const gear: SpinnerDesign = {
 const flower: SpinnerDesign = {
   name: 'Flower',
   friction: 0.98,
+  sound: {
+    freqRange: [300, 2500],
+    q: 3.0,
+    filterType: 'bandpass',
+    maxVol: 0.18,
+    noiseType: 'pink',
+    toneFreq: 220,
+    toneVol: 0.08,
+    toneType: 'sine',
+  },
   draw(ctx, size, rotation, theme) {
     ctx.save();
     ctx.rotate(rotation);
