@@ -192,6 +192,21 @@ function setupInteraction(canvas: HTMLCanvasElement) {
       pulseOnSpin();
     }
   });
+
+  // Arrow keys to flick: Right/Up = clockwise, Left/Down = counter-clockwise
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      ensureAudio();
+      applyFlick(spinnerState, 15 + Math.random() * 10);
+      pulseOnSpin();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      ensureAudio();
+      applyFlick(spinnerState, -(15 + Math.random() * 10));
+      pulseOnSpin();
+    }
+  });
 }
 
 function loop(time: number) {

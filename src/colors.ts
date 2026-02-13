@@ -77,4 +77,12 @@ export const colorThemes: ColorTheme[] = [
     highlight: '#fdd6e8',
     glow: 'rgba(244, 114, 182, 0.4)',
   },
+  {
+    name: 'White',
+    swatch: '#ffffff',
+    body: ['#ffffff', '#e8e8e8', '#cccccc'],
+    stroke: '#999999',
+    highlight: '#ffffff',
+    glow: 'rgba(255, 255, 255, 0.4)',
+  },
 ];
